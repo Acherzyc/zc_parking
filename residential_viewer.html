@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>住宅单元视频即时播放系统</title>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --point-color: rgba(220, 53, 69, 0.8); /* 标记点的颜色 (红色) */
+            --point-shadow-color: rgba(220, 53, 69, 1);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; }
+        #app-container { max-width: 1600px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #333; }
+        .toolbar { text-align: center; margin: 20px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px; display: flex; justify-content: center; align-items: center; gap: 15px; border: 1px solid #dee2e6; flex-wrap: wrap;}
+        .toolbar button, .toolbar label { padding: 10px 20px; font-size: 16px; cursor: pointer; border: 1px solid #ccc; background-color: white; border-radius: 5px; transition: all 0.2s ease;}
+        .toolbar button:hover, .toolbar label:hover { background-color: #e9ecef; border-color: #adb5bd;}
+        .toolbar button.active { background-color: var(--primary-color); color: white; border-color: var(--primary-color);}
+        
+        .floor-plan-container { 
+            position: relative; 
+            margin: 20px auto; 
+            border: 2px solid #ccc; 
+            width: 1533px; /* 请根据您的图片宽度修改 */
+            height: 775px;  /* 请根据您的图片高度修改 */
+            /* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 请将这里替换为您的楼盘平面图图片路径 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+            background-image: url('YOUR_FLOOR_PLAN_IMAGE.jpg'); 
+            background-color: #e9ecef; /* 添加一个占位背景色 */
+            background-size: cover;
+        }
+        .floor-plan-container.drawing-mode { cursor: crosshair; }
+
+        .unit-point {
+            position: absolute;
+            min-width: 30px;
+            padding: 0 5px;
+            height: 22px;
+            background-color: var(--point-color);
+            border-radius: 11px;
+            border: 2px solid white;
+            cursor: pointer;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 8px var(--point-shadow-color);
+            transition: transform 0.2s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        .unit-point:hover { 
+            transform: translate(-50%, -50%) scale(1.2); 
+            z-index: 10;
+        }
+
+        /* 视频播放弹窗 */
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 1003;
+        }
+        .modal.hidden { display: none; }
+        #video-modal-content { 
+            position: relative; 
+            background: #fff; 
+            padding: 20px; 
+            border-radius: 8px; 
+            width: 80vw; 
+            max-width: 960px;
+            display: flex;
+            flex-direction: column;
+        }
+        #video-modal-header {
+            margin-bottom: 15px;
+        }
+        #video-modal-header h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        #video-description-textarea {
+            width: 98%;
+            min-height: 60px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 15px;
+            resize: vertical;
+        }
+        #video-player { width: 100%; height: auto; background-color: #000; }
+        #video-modal-close { position: absolute; top: 10px; right: 15px; font-size: 30px; color: #888; cursor: pointer; border: none; background: none; line-height: 1; }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <h1>住宅单元视频即时播放系统</h1>
+        
+        <div class="toolbar">
+            <button id="view-mode-btn" class="active">查看模式</button>
+            <button id="create-mode-btn">创建模式</button>
+            <label for="json-importer">导入标记点 (JSON)</label>
+            <input type="file" id="json-importer" accept=".json" style="display: none;">
+            <button id="export-data-btn">导出标记点 (JSON)</button>
+        </div>
+
+        <div id="floor-plan" class="floor-plan-container"></div>
+        
+        <div id="video-modal" class="modal hidden">
+            <div id="video-modal-content">
+                <button id="video-modal-close">&times;</button>
+                <div id="video-modal-header">
+                    <h3 id="video-title"></h3>
+                    <textarea id="video-description-textarea" placeholder="在此处输入或编辑文字说明..."></textarea>
+                </div>
+                <video id="video-player" controls autoplay></video>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // ***** JSON数据已整合在此处 *****
+    let unitPoints = [
+        {
+            "id": "201",
+            "coords": { "x": 320, "y": 603 },
+            "description": "按体系18017元/方"
+        },
+        {
+            "id": "202",
+            "coords": { "x": 421, "y": 606 },
+            "description": "按体系17841元/方"
+        },
+        {
+            "id": "301",
+            "coords": { "x": 323, "y": 575 },
+            "description": "按体系18106元/方"
+        },
+        {
+            "id": "501",
+            "coords": { "x": 324, "y": 525 },
+            "description": "按体系18194元/方"
+        },
+        {
+            "id": "701",
+            "coords": { "x": 321, "y": 472 },
+            "description": "按体系18439元/方"
+        },
+        {
+            "id": "901",
+            "coords": { "x": 319, "y": 422 },
+            "description": "按体系18695元/方"
+        },
+        {
+            "id": "1301",
+            "coords": { "x": 330, "y": 310 },
+            "description": ""
+        },
+        {
+            "id": "1102",
+            "coords": { "x": 414, "y": 370 },
+            "description": "按体系18780元/方"
+        }
+    ];
+    
+    const floorPlan = document.getElementById('floor-plan');
+    const videoModal = document.getElementById('video-modal');
+    const videoPlayer = document.getElementById('video-player');
+    const videoTitle = document.getElementById('video-title');
+    const videoDescriptionTextarea = document.getElementById('video-description-textarea');
+    const viewModeBtn = document.getElementById('view-mode-btn');
+    const createModeBtn = document.getElementById('create-mode-btn');
+    
+    let currentMode = 'view';
+    let currentPlayingPointId = null;
+
+    function renderPoints() {
+        floorPlan.innerHTML = '';
+        unitPoints.forEach(point => {
+            const pointDiv = document.createElement('div');
+            pointDiv.className = 'unit-point';
+            pointDiv.style.top = `${point.coords.y}px`;
+            pointDiv.style.left = `${point.coords.x}px`;
+            pointDiv.textContent = point.id;
+            pointDiv.dataset.id = point.id;
+            
+            pointDiv.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (currentMode === 'view') {
+                    openVideoModal(point.id);
+                } else {
+                    if (confirm(`确定要删除房号 [${point.id}] 吗？`)) {
+                        unitPoints = unitPoints.filter(p => p.id !== point.id);
+                        renderPoints();
+                    }
+                }
+            });
+            floorPlan.appendChild(pointDiv);
+        });
+    }
+
+    createModeBtn.addEventListener('click', () => {
+        currentMode = 'create';
+        floorPlan.classList.add('drawing-mode');
+        createModeBtn.classList.add('active');
+        viewModeBtn.classList.remove('active');
+        alert("已进入创建模式。点击平面图添加房号，点击已有房号可删除。");
+    });
+
+    viewModeBtn.addEventListener('click', () => {
+        currentMode = 'view';
+        floorPlan.classList.remove('drawing-mode');
+        viewModeBtn.classList.add('active');
+        createModeBtn.classList.remove('active');
+    });
+        
+    floorPlan.addEventListener('click', e => {
+        if (currentMode !== 'create' || e.target !== floorPlan) return;
+        
+        const newId = prompt("请输入新房号 (例如: 201):");
+        if (!newId || !newId.trim()) return;
+        if (unitPoints.some(p => p.id === newId)) {
+            alert(`错误：房号 [${newId}] 已存在！`);
+            return;
+        }
+
+        const rect = floorPlan.getBoundingClientRect();
+        const coords = { x: Math.round(e.clientX - rect.left), y: Math.round(e.clientY - rect.top) };
+        const newPoint = { id: newId, coords: coords, description: "" };
+        
+        unitPoints.push(newPoint);
+        renderPoints();
+    });
+    
+    function openVideoModal(pointId) {
+        const point = unitPoints.find(p => p.id === pointId);
+        if (!point) {
+            alert("错误：找不到该房号的数据。");
+            return;
+        }
+
+        currentPlayingPointId = pointId;
+        const videoSrc = `${point.id}.mp4`; // 直接构建视频文件名
+
+        videoTitle.textContent = `正在播放: ${point.id}`;
+        videoDescriptionTextarea.value = point.description;
+        videoPlayer.src = videoSrc;
+        
+        videoModal.classList.remove('hidden');
+        videoPlayer.play().catch(error => {
+            alert(`视频播放失败！\n\n错误信息: ${error}\n\n请确认：\n1. 此HTML文件和视频文件在同一个文件夹内。\n2. 视频文件名与房号完全一致，为 "${point.id}.mp4"。`);
+            closeVideoModal();
+        });
+    }
+
+    function closeVideoModal() {
+        // 关闭前，自动保存文字说明
+        if (currentPlayingPointId) {
+            const point = unitPoints.find(p => p.id === currentPlayingPointId);
+            if (point) {
+                point.description = videoDescriptionTextarea.value;
+            }
+        }
+
+        videoModal.classList.add('hidden');
+        videoPlayer.pause();
+        videoPlayer.src = ''; // 清空src，停止加载
+        currentPlayingPointId = null;
+    }
+    document.getElementById('video-modal-close').addEventListener('click', closeVideoModal);
+
+    // JSON 导入/导出功能 (未改变)
+    document.getElementById('json-importer').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const importedData = JSON.parse(event.target.result);
+                if (!Array.isArray(importedData)) throw new Error('JSON data is not an array.');
+                if (confirm('导入JSON将覆盖当前所有房号标记，确定继续吗？')) {
+                    unitPoints = importedData;
+                    renderPoints();
+                    alert('房号数据已成功导入！');
+                }
+            } catch (error) {
+                alert("导入失败，请检查JSON文件格式。");
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    });
+
+    document.getElementById('export-data-btn').addEventListener('click', () => {
+        if (unitPoints.length === 0) {
+            alert("没有可导出的房号。");
+            return;
+        }
+        const dataStr = JSON.stringify(unitPoints, null, 4);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `residential_units_data_${new Date().getTime()}.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    });
+
+    // 页面加载时立即渲染已整合的标记点
+    renderPoints();
+});
+</script>
+</body>
+</html>
